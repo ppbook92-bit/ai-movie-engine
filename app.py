@@ -1,10 +1,11 @@
+from flask import Flask, request, jsonify
 import json
 import os
 
+app = Flask(__name__)
 DATA_FILE = "data_store.json"
 
 def load_data():
-    """Load existing user data from the local JSON file."""
     if not os.path.exists(DATA_FILE):
         return {}
     with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -14,49 +15,45 @@ def load_data():
             return {}
 
 def save_data(data):
-    """Save user data back to the JSON file."""
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-def get_next_batch(user_id):
-    """
-    Pulls 5 movies from queue_35 into current_batch.
-    Returns the 5 movies for the user to see.
-    """
+@app.route('/get_batch', methods=['GET'])
+def api_get_batch():
+    user_id = request.args.get('user_id', 'user_101')
     data = load_data()
     user = data.get(user_id)
+    
     if not user:
-        return {"status": "error", "message": f"User {user_id} not found."}
+        return jsonify({"status": "error", "message": f"User {user_id} not found."}), 404
 
     queue = user.get("queue_35", [])
     
     if len(queue) >= 5:
-        # Take the first 5 movies
         batch = queue[:5]
-        # Keep the rest in the queue
         user["queue_35"] = queue[5:]
         user["current_batch"] = batch
         save_data(data)
-        return {"status": "success", "batch": batch}
+        return jsonify({"status": "success", "batch": batch})
     elif len(queue) > 0:
-        # Take whatever is left if less than 5
         batch = queue
         user["queue_35"] = []
         user["current_batch"] = batch
         save_data(data)
-        return {"status": "success", "batch": batch}
+        return jsonify({"status": "success", "batch": batch})
     else:
-        return {"status": "empty", "message": "Queue is empty! Need new AI batch."}
+        return jsonify({"status": "empty", "message": "Queue is empty! Need new AI batch."})
 
-def process_checkmarks(user_id, watched_titles):
-    """
-    Moves checked titles from current_batch into watched_blacklist,
-    and moves unchecked titles into unwatched_recycle_pool.
-    """
+@app.route('/process_checkmarks', methods=['POST'])
+def api_process_checkmarks():
+    req_data = request.json
+    user_id = req_data.get('user_id', 'user_101')
+    watched_titles = req_data.get('watched_titles', [])
+    
     data = load_data()
     user = data.get(user_id)
     if not user:
-        return {"status": "error", "message": "User not found."}
+        return jsonify({"status": "error", "message": "User not found."}), 404
 
     current_batch = user.get("current_batch", [])
     
@@ -66,8 +63,10 @@ def process_checkmarks(user_id, watched_titles):
         else:
             user["unwatched_recycle_pool"].append(title)
             
-    # Clear the current batch now that we've processed it
     user["current_batch"] = []
     save_data(data)
     
-    return {"status": "success", "message": "Checkmarks processed."}
+    return jsonify({"status": "success", "message": "Checkmarks processed."})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
